@@ -1,0 +1,27 @@
+# Rust build artifacts
+/target
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Cargo lock in library crates (not an app)
+Cargo.lock
+
+# Benchmark output
+/criterion
+
+# Temporary FastNoiseSIMD source (if cloned for reference)
+/temp_fastnoise_simd
+/temp_*
+
+# Coverage
+*.profraw
+*.profdata
+/tarpaulin-report.html
+/cobertura.xml
