@@ -164,4 +164,30 @@ impl Settings {
             self.fractal_bounding = Self::calculate_fractal_bounding(self.octaves, self.gain);
         }
     }
+
+    /// Validate settings and return an error message if something is wrong.
+    ///
+    /// Returns `Ok(())` if all settings are valid.
+    #[must_use]
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.frequency <= 0.0 {
+            return Err("frequency must be > 0");
+        }
+        if self.octaves <= 0 {
+            return Err("octaves must be > 0");
+        }
+        if self.lacunarity <= 0.0 {
+            return Err("lacunarity must be > 0");
+        }
+        if self.gain <= 0.0 {
+            return Err("gain must be > 0");
+        }
+        if self.perturb_frequency <= 0.0 {
+            return Err("perturb_frequency must be > 0");
+        }
+        if self.cellular_noise_lookup_frequency <= 0.0 {
+            return Err("cellular_noise_lookup_frequency must be > 0");
+        }
+        Ok(())
+    }
 }

@@ -13,8 +13,7 @@
 
 /// SIMD level / instruction set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[allow(dead_code)]
-enum SimdLevel {
+pub enum SimdLevel {
     /// Scalar fallback (1 lane, no SIMD).
     Scalar = 0,
     /// SSE2 (4 lanes, 128-bit).
@@ -41,6 +40,52 @@ impl SimdLevel {
             SimdLevel::Avx512 => 16,
         }
     }
+}
+
+/// Detect the best SIMD level available at runtime.
+///
+/// Probes CPU features and returns the highest supported level.
+/// Falls back to `Scalar` if no SIMD is available.
+#[must_use]
+pub(crate) fn detect_simd_level() -> SimdLevel {
+    detect_simd_level_impl()
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn detect_simd_level_impl() -> SimdLevel {
+    if std::is_x86_feature_detected!("avx512f") {
+        return SimdLevel::Avx512;
+    }
+    if std::is_x86_feature_detected!("avx2") {
+        return SimdLevel::Avx2;
+    }
+    if std::is_x86_feature_detected!("sse4.1") {
+        return SimdLevel::Sse41;
+    }
+    if std::is_x86_feature_detected!("sse2") {
+        return SimdLevel::Sse2;
+    }
+    SimdLevel::Scalar
+}
+
+#[cfg(target_arch = "aarch64")]
+fn detect_simd_level_impl() -> SimdLevel {
+    // NEON is mandatory on ARMv8+. The `is_aarch64_feature_detected` macro
+    // is available on aarch64 targets.
+    if std::arch::is_aarch64_feature_detected!("neon") {
+        return SimdLevel::Neon;
+    }
+    // Fallback: NEON is guaranteed on aarch64.
+    SimdLevel::Neon
+}
+
+#[cfg(not(any(
+    target_arch = "x86",
+    target_arch = "x86_64",
+    target_arch = "aarch64"
+)))]
+fn detect_simd_level_impl() -> SimdLevel {
+    SimdLevel::Scalar
 }
 
 /// Trait for SIMD floating-point operations.
@@ -130,9 +175,10 @@ pub trait SimdInt: Sized + Copy + Clone {
 // Platform-specific implementations
 pub(crate) mod scalar;
 
-#[cfg(all(target_arch = "x86_64", target_feature = "sse2"))]
+// Using `has_sse2` cfg set by build.rs (from feature flag or target_feature detection).
+#[cfg(all(target_arch = "x86_64", has_sse2))]
 pub(crate) mod sse2;
-#[cfg(not(all(target_arch = "x86_64", target_feature = "sse2")))]
+#[cfg(not(all(target_arch = "x86_64", has_sse2)))]
 pub(crate) mod sse2 {
     #[allow(unused_imports)]
     pub(crate) use super::scalar::ScalarFloat as Sse2Float;
@@ -140,9 +186,9 @@ pub(crate) mod sse2 {
     pub(crate) use super::scalar::ScalarInt as Sse2Int;
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "sse4.1"))]
+#[cfg(all(target_arch = "x86_64", has_sse41))]
 pub(crate) mod sse41;
-#[cfg(not(all(target_arch = "x86_64", target_feature = "sse4.1")))]
+#[cfg(not(all(target_arch = "x86_64", has_sse41)))]
 pub(crate) mod sse41 {
     #[allow(unused_imports)]
     pub(crate) use super::scalar::ScalarFloat as Sse41Float;
@@ -150,9 +196,10 @@ pub(crate) mod sse41 {
     pub(crate) use super::scalar::ScalarInt as Sse41Int;
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+// Note: avx2.rs is a stub (scalar fallback) until full AVX2 implementation.
+#[cfg(all(target_arch = "x86_64", has_avx2))]
 pub(crate) mod avx2;
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+#[cfg(not(all(target_arch = "x86_64", has_avx2)))]
 pub(crate) mod avx2 {
     #[allow(unused_imports)]
     pub(crate) use super::scalar::ScalarFloat as Avx2Float;
@@ -160,9 +207,10 @@ pub(crate) mod avx2 {
     pub(crate) use super::scalar::ScalarInt as Avx2Int;
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+// Note: avx512.rs is a stub (scalar fallback) until full AVX-512F implementation.
+#[cfg(all(target_arch = "x86_64", has_avx512))]
 pub(crate) mod avx512;
-#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
+#[cfg(not(all(target_arch = "x86_64", has_avx512)))]
 pub(crate) mod avx512 {
     #[allow(unused_imports)]
     pub(crate) use super::scalar::ScalarFloat as Avx512Float;
@@ -170,12 +218,18 @@ pub(crate) mod avx512 {
     pub(crate) use super::scalar::ScalarInt as Avx512Int;
 }
 
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+// Note: neon.rs is a stub (scalar fallback) until full NEON implementation.
+#[cfg(all(
+    any(target_arch = "aarch64", target_arch = "arm"),
+    has_neon
+))]
 pub(crate) mod neon;
-#[cfg(not(all(target_arch = "aarch64", target_feature = "neon")))]
+#[cfg(not(all(
+    any(target_arch = "aarch64", target_arch = "arm"),
+    has_neon
+)))]
+#[allow(dead_code)]
 pub(crate) mod neon {
-    #[allow(unused_imports)]
     pub(crate) use super::scalar::ScalarFloat as NeonFloat;
-    #[allow(unused_imports)]
     pub(crate) use super::scalar::ScalarInt as NeonInt;
 }

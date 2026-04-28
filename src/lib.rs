@@ -47,17 +47,38 @@ pub use settings::{
 pub use vectorset::NoiseVectorSet;
 
 use simd::scalar::{ScalarFloat, ScalarInt};
+use simd::SimdLevel;
 
 // ============================================================================
 // SIMD Dispatch Helpers
 // ============================================================================
 
-#[allow(unused_macros)]
-macro_rules! with_simd {
-    ($op:ident, $F:ty, $I:ty, $($args:expr),* $(,)?) => {{
-        // Helper that resolves to the best available SIMD path at runtime.
-        // For now, always uses scalar; feature-gated modules can override.
-        $op::<$F, $I>($($args),*)
+/// Macro to dispatch a SIMD kernel operation based on SimdLevel at runtime.
+///
+/// ## Usage
+/// ```ignore
+/// simd_dispatch!(self.simd_level, fill_noise_set_3d, &self.settings, sx, sy, sz, w, h, d, &mut out);
+/// ```
+macro_rules! simd_dispatch {
+    ($level:expr, fill_noise_set_3d, $settings:expr, $sx:expr, $sy:expr, $sz:expr, $w:expr, $h:expr, $d:expr, $out:expr) => {{
+        match $level {
+            SimdLevel::Avx512 => kernel::fill_noise_set_3d::<simd::avx512::Avx512Float, simd::avx512::Avx512Int>($settings, $sx, $sy, $sz, $w, $h, $d, $out),
+            SimdLevel::Avx2 => kernel::fill_noise_set_3d::<simd::avx2::Avx2Float, simd::avx2::Avx2Int>($settings, $sx, $sy, $sz, $w, $h, $d, $out),
+            SimdLevel::Sse41 => kernel::fill_noise_set_3d::<simd::sse41::Sse41Float, simd::sse41::Sse41Int>($settings, $sx, $sy, $sz, $w, $h, $d, $out),
+            SimdLevel::Sse2 => kernel::fill_noise_set_3d::<simd::sse2::Sse2Float, simd::sse2::Sse2Int>($settings, $sx, $sy, $sz, $w, $h, $d, $out),
+            SimdLevel::Neon => kernel::fill_noise_set_3d::<simd::neon::NeonFloat, simd::neon::NeonInt>($settings, $sx, $sy, $sz, $w, $h, $d, $out),
+            SimdLevel::Scalar => kernel::fill_noise_set_3d::<ScalarFloat, ScalarInt>($settings, $sx, $sy, $sz, $w, $h, $d, $out),
+        }
+    }};
+    ($level:expr, fill_noise_set_2d, $settings:expr, $sx:expr, $sy:expr, $w:expr, $h:expr, $out:expr) => {{
+        match $level {
+            SimdLevel::Avx512 => kernel::fill_noise_set_2d::<simd::avx512::Avx512Float, simd::avx512::Avx512Int>($settings, $sx, $sy, $w, $h, $out),
+            SimdLevel::Avx2 => kernel::fill_noise_set_2d::<simd::avx2::Avx2Float, simd::avx2::Avx2Int>($settings, $sx, $sy, $w, $h, $out),
+            SimdLevel::Sse41 => kernel::fill_noise_set_2d::<simd::sse41::Sse41Float, simd::sse41::Sse41Int>($settings, $sx, $sy, $w, $h, $out),
+            SimdLevel::Sse2 => kernel::fill_noise_set_2d::<simd::sse2::Sse2Float, simd::sse2::Sse2Int>($settings, $sx, $sy, $w, $h, $out),
+            SimdLevel::Neon => kernel::fill_noise_set_2d::<simd::neon::NeonFloat, simd::neon::NeonInt>($settings, $sx, $sy, $w, $h, $out),
+            SimdLevel::Scalar => kernel::fill_noise_set_2d::<ScalarFloat, ScalarInt>($settings, $sx, $sy, $w, $h, $out),
+        }
     }};
 }
 
@@ -67,18 +88,29 @@ macro_rules! with_simd {
 
 /// Main noise generator struct.
 ///
-/// Holds all settings and provides single-sample and grid generation methods.
+/// Holds all settings, provides single-sample and grid generation methods,
+/// and auto-detects the best available SIMD level at construction time.
 #[derive(Debug, Clone)]
 pub struct FastNoise {
     settings: settings::Settings,
+    simd_level: SimdLevel,
 }
 
 impl FastNoise {
     /// Create a new `FastNoise` with the given seed.
+    ///
+    /// Automatically detects the best SIMD level for the current CPU.
     pub fn new(seed: i32) -> Self {
         Self {
             settings: settings::Settings::new(seed),
+            simd_level: simd::detect_simd_level(),
         }
+    }
+
+    /// Returns the SIMD level this instance was constructed with.
+    #[must_use]
+    pub fn simd_level(&self) -> SimdLevel {
+        self.simd_level
     }
 
     // ------------------------------------------------------------------
@@ -201,8 +233,8 @@ impl FastNoise {
     ///
     /// Returns a flat `Vec<f32>` ordered x => y => z.
     ///
-    /// Currently uses scalar per-pixel evaluation (SIMD kernel integration
-    /// is incomplete — see README TODOs).
+    /// Uses SIMD batch processing along the x-axis where possible,
+    /// falling back to scalar for remainders.
     pub fn generate_grid(
         &self,
         start_x: i32,
@@ -213,15 +245,12 @@ impl FastNoise {
         depth: i32,
     ) -> Vec<f32> {
         let count = (width * height * depth) as usize;
-        let mut out = Vec::with_capacity(count);
+        let mut out = vec![0.0_f32; count];
 
-        for z in start_z..start_z + depth {
-            for y in start_y..start_y + height {
-                for x in start_x..start_x + width {
-                    out.push(self.get_noise_3d(x as f32, y as f32, z as f32));
-                }
-            }
-        }
+        simd_dispatch!(
+            self.simd_level, fill_noise_set_3d,
+            &self.settings, start_x, start_y, start_z, width, height, depth, &mut out
+        );
 
         out
     }
@@ -229,6 +258,9 @@ impl FastNoise {
     /// Generate a 2D noise grid.
     ///
     /// Returns a flat `Vec<f32>` ordered x => y.
+    ///
+    /// Uses SIMD batch processing along the x-axis where possible,
+    /// falling back to scalar for remainders.
     pub fn generate_grid_2d(
         &self,
         start_x: i32,
@@ -237,13 +269,12 @@ impl FastNoise {
         height: i32,
     ) -> Vec<f32> {
         let count = (width * height) as usize;
-        let mut out = Vec::with_capacity(count);
+        let mut out = vec![0.0_f32; count];
 
-        for y in start_y..start_y + height {
-            for x in start_x..start_x + width {
-                out.push(self.get_noise_2d(x as f32, y as f32));
-            }
-        }
+        simd_dispatch!(
+            self.simd_level, fill_noise_set_2d,
+            &self.settings, start_x, start_y, width, height, &mut out
+        );
 
         out
     }

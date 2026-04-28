@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Rustfmt & Clippy ─────────────────────────────────────────────
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+
+  # ── x86_64: Scalar (kein SIMD-Feature) ───────────────────────────
+  test-scalar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --lib
+
+  # ── x86_64: SSE2 ─────────────────────────────────────────────────
+  test-sse2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --lib --features sse2
+
+  # ── x86_64: SSE4.1 ───────────────────────────────────────────────
+  test-sse41:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --lib --features sse41
+
+  # ── x86_64: AVX2 ─────────────────────────────────────────────────
+  test-avx2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --lib --features avx2
+
+  # ── x86_64: AVX-512 (nur Compile-Check, kein AVX-512-Hardware) ──
+  test-avx512:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: RUSTFLAGS="-C target-feature=+avx512f" cargo build --lib --features avx512
+
+  # ── x86_64: Alle Features kombiniert ─────────────────────────────
+  test-all:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --lib --features "sse2,sse41,avx2"
+
+  # ── aarch64: NEON (cross-compile + QEMU-Test) ────────────────────
+  test-neon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cross
+        run: cargo install cross --locked
+      - name: Test aarch64 with NEON
+        run: cross test --lib --target aarch64-unknown-linux-gnu --features neon

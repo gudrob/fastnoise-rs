@@ -82,7 +82,6 @@ fn hash_batch_3d_x<F: SimdFloat, I: SimdInt>(
 ///
 /// All lanes share the same y, z, seed. x varies per lane.
 #[inline]
-#[allow(dead_code)]
 fn value_noise_3d_batch<F: SimdFloat, I: SimdInt>(
     seed: i32,
     x: F, // VECTOR_SIZE x coords
@@ -160,7 +159,6 @@ fn value_noise_3d_batch<F: SimdFloat, I: SimdInt>(
 ///
 /// Processes `VECTOR_SIZE` consecutive x values at once per y,z iteration.
 /// Then falls back to scalar for any remainder.
-#[allow(dead_code)]
 pub fn fill_noise_set_3d<F: SimdFloat, I: SimdInt>(
     settings: &Settings,
     start_x: i32,
@@ -206,7 +204,7 @@ pub fn fill_noise_set_3d<F: SimdFloat, I: SimdInt>(
     }
 }
 
-/// Compute a single sample using the `generate_3d` path (scalar-style).
+/// Compute a single sample by delegating to `noise::generate_3d`.
 #[inline]
 fn noise_generate_sample_3d<F: SimdFloat, I: SimdInt>(
     settings: &Settings,
@@ -214,54 +212,79 @@ fn noise_generate_sample_3d<F: SimdFloat, I: SimdInt>(
     y: f32,
     z: f32,
 ) -> f32 {
-    use crate::fractal;
-    let x = x * settings.x_scale * settings.frequency;
-    let y = y * settings.y_scale * settings.frequency;
-    let z = z * settings.z_scale * settings.frequency;
+    super::noise::generate_3d::<F, I>(settings, x, y, z)
+}
 
-    let value = match settings.noise_type {
-        NoiseType::Value => super::noise::single_value_3d::<F, I>(settings.seed, x, y, z),
-        NoiseType::ValueFractal => fractal::fractal_3d::<F, I>(
-            settings,
-            |seed, x, y, z| super::noise::single_value_3d::<F, I>(seed, x, y, z),
-            x,
-            y,
-            z,
-        ),
-        NoiseType::Perlin => super::noise::single_perlin_3d::<F, I>(settings.seed, x, y, z),
-        NoiseType::PerlinFractal => fractal::fractal_3d::<F, I>(
-            settings,
-            |seed, x, y, z| super::noise::single_perlin_3d::<F, I>(seed, x, y, z),
-            x,
-            y,
-            z,
-        ),
-        NoiseType::Simplex => super::noise::single_simplex_3d::<F, I>(settings.seed, x, y, z),
-        NoiseType::SimplexFractal => fractal::fractal_3d::<F, I>(
-            settings,
-            |seed, x, y, z| super::noise::single_simplex_3d::<F, I>(seed, x, y, z),
-            x,
-            y,
-            z,
-        ),
-        NoiseType::Cellular => super::noise::single_cellular_3d::<F, I>(settings, x, y, z),
-        NoiseType::WhiteNoise => {
-            super::noise::single_white_noise_3d::<F, I>(settings.seed, x, y, z)
+/// Compute a single sample by delegating to `noise::generate_2d`.
+#[inline]
+fn noise_generate_sample_2d<F: SimdFloat, I: SimdInt>(
+    settings: &Settings,
+    x: f32,
+    y: f32,
+) -> f32 {
+    super::noise::generate_2d::<F, I>(settings, x, y)
+}
+
+/// Fill a 2D noise grid using batched SIMD along the x-axis.
+///
+/// Processes `VECTOR_SIZE` consecutive x values at once per y iteration.
+/// Then falls back to scalar for any remainder.
+pub fn fill_noise_set_2d<F: SimdFloat, I: SimdInt>(
+    settings: &Settings,
+    start_x: i32,
+    start_y: i32,
+    width: i32,
+    height: i32,
+    noise_set_out: &mut [f32],
+) {
+    let vs = F::VECTOR_SIZE as i32;
+    let mut idx = 0;
+
+    for y in start_y..start_y + height {
+        let mut x = start_x;
+        // Process full SIMD chunks
+        while x + vs <= start_x + width {
+            let batch = noise_batch_2d::<F, I>(
+                settings, x as f32, y as f32,
+                1.0, // unit stride for consecutive x
+            );
+
+            unsafe {
+                let mut out_slice = [0.0_f32; 16];
+                F::store(out_slice.as_mut_ptr(), batch);
+                for i in 0..F::VECTOR_SIZE {
+                    noise_set_out[idx] = out_slice[i];
+                    idx += 1;
+                }
+            }
+            x += vs;
         }
-        NoiseType::Cubic => super::noise::single_cubic_3d::<F, I>(settings.seed, x, y, z),
-        NoiseType::CubicFractal => fractal::fractal_3d::<F, I>(
-            settings,
-            |seed, x, y, z| super::noise::single_cubic_3d::<F, I>(seed, x, y, z),
-            x,
-            y,
-            z,
-        ),
-    };
+        // Scalar remainder
+        while x < start_x + width {
+            noise_set_out[idx] =
+                noise_generate_sample_2d::<F, I>(settings, x as f32, y as f32);
+            idx += 1;
+            x += 1;
+        }
+    }
+}
 
-    if settings.perturb_type != crate::settings::PerturbType::None {
-        crate::perturb::perturb_3d::<F, I>(settings, x, y, z)
-    } else {
-        value
+/// Compute a batch of VECTOR_SIZE noise samples at (x + stride*i, y).
+///
+/// Uses per-lane scalar evaluation for now (2D batch kernels TBD).
+fn noise_batch_2d<F: SimdFloat, I: SimdInt>(
+    settings: &Settings,
+    base_x: f32,
+    y: f32,
+    stride: f32,
+) -> F {
+    unsafe {
+        let mut values = [0.0_f32; 16];
+        for i in 0..F::VECTOR_SIZE {
+            let x = base_x + stride * i as f32;
+            values[i] = noise_generate_sample_2d::<F, I>(settings, x, y);
+        }
+        F::load(values.as_ptr())
     }
 }
 
@@ -323,6 +346,10 @@ fn build_batch_scalar<F: SimdFloat, I: SimdInt>(
 }
 
 /// Build a batch with perturb applied per-lane.
+///
+/// Scales coordinates before calling `perturb::perturb_3d`,
+/// matching the coordinate scaling that `noise::generate_3d` performs
+/// before its perturb dispatch.
 fn build_batch_perturbed<F: SimdFloat, I: SimdInt>(
     settings: &Settings,
     base_x: f32,
@@ -333,8 +360,10 @@ fn build_batch_perturbed<F: SimdFloat, I: SimdInt>(
     unsafe {
         let mut values = [0.0_f32; 16];
         for i in 0..F::VECTOR_SIZE {
-            let x = base_x + stride * i as f32;
-            values[i] = noise_generate_sample_3d::<F, I>(settings, x, y, z);
+            let sx = (base_x + stride * i as f32) * settings.x_scale * settings.frequency;
+            let sy = y * settings.y_scale * settings.frequency;
+            let sz = z * settings.z_scale * settings.frequency;
+            values[i] = super::perturb::perturb_3d::<F, I>(settings, sx, sy, sz);
         }
         F::load(values.as_ptr())
     }
@@ -435,30 +464,19 @@ fn grad_coord_batch(seed: i32, x: i32, y: i32, z: i32, dx: f32, dy: f32, dz: f32
 // ============================================================================
 
 fn simplex_noise_3d_batch<F: SimdFloat, I: SimdInt>(seed: i32, x: F, y: f32, z: f32) -> F {
-    const SKEW_3D: f32 = 1.0 / 3.0;
-    const UNSKEW_3D: f32 = 1.0 / 6.0;
+    // Simplex 3D is inherently scalar due to branching on coordinate ordering.
+    // Each lane has a different (x0,y0,z0) skew → different simplex case → different code path.
+    // Fall back to per-lane computation, then load results into SIMD register.
+    unsafe {
+        let mut x_scalars = [0.0_f32; 16];
+        F::store(x_scalars.as_mut_ptr(), x);
 
-    let skew = F::set(SKEW_3D);
-    let _unskew = F::set(UNSKEW_3D);
-    let y3 = F::set(y);
-    let z3 = F::set(z);
-
-    // s = (x + y + z) * SKEW_3D
-    let sum_xyz = x.add(y3).add(z3);
-    let s = sum_xyz.mul(skew);
-    let _ix_float = x.add(s).floor();
-    let _iy = (y + (y + z) * SKEW_3D).floor() as i32; // simplified: y+s where s depends on x too
-                                                      // Actually, this needs per-lane processing since simplex skew depends on all coords
-
-    // Simplex 3D is inherently scalar due to branching on coordinate order.
-    // Fall back to per-lane computation, then load into SIMD.
-    build_batch_scalar::<F, I>(
-        &Settings::new(seed), // placeholder — matching settings is complex; use per-lane
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-    ) // This is a stub; we'll just use scalar fallback for simplex
+        let mut values = [0.0_f32; 16];
+        for i in 0..F::VECTOR_SIZE {
+            values[i] = super::noise::single_simplex_3d::<F, I>(seed, x_scalars[i], y, z);
+        }
+        F::load(values.as_ptr())
+    }
 }
 
 /// Scalar smoothstep used in batch helpers.

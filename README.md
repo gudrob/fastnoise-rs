@@ -1,5 +1,7 @@
 # fast-noise-simd-rs
 
+[![CI](https://github.com/gudrob/fastnoise-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/gudrob/fastnoise-rs/actions/workflows/ci.yml)
+
 Zero-dependency Rust port of [Auburn/FastNoiseSIMD](https://github.com/Auburn/FastNoiseSIMD).
 Generiert kohärentes Rauschen für prozedurale Content-Generierung.
 
@@ -74,17 +76,17 @@ Stand nach 23 commits ab HEAD. Branch `simd-batch-kernel` hat `kernel.rs` introz
 
 ### Kritisch (blocker für 0.1 release)
 
-- [ ] `lib.rs` Grid-Generatoren (`generate_grid_2d`/`3d`) von `noise::value_2d` auf
-      `kernel::fill_value_2d_set` umstellen (analog für perlin/simplex/cellular/cubic).
-- [ ] `kernel.rs` build_batch_3d Implementierung reparieren:
-      simplex_3d ist aktuell nicht batched (skew hängt von sum_xyz ab, pro-Lane unterschiedlich).
-      Entweder scalar backoff oder Coordinate-Ordering pro Lane parallelisieren.
-- [ ] `hash_batch_3d_x` mit seed-Parameter ausstatten (aktuell seed undefined).
-- [ ] `noise.rs` und `kernel.rs` bereinigen: Entweder noise.rs löschen und nur kernel.rs behalten,
-      oder kernel.rs als reiner SIMD-Helper, noise.rs behält die Logik.
-      Aktuell: noise.rs ist funktional, kernel.rs dupliziert Logik aber ist inkomplett.
-- [ ] `build.rs` / Feature-Gates prüfen: `std::arch::*` targets korrekt gesetzt?
-      (x86_64, aarch64). Ohne Target kein SIMD.
+- [x] `lib.rs` Grid-Generatoren (`generate_grid_2d`/`3d`) von `noise::value_2d` auf
+      `kernel::fill_noise_set_3d`/`fill_noise_set_2d` umgestellt.
+      Value/Perlin/Simplex nutzen SIMD-Kernel, rest per scalar fallback.
+- [x] `kernel.rs` simplex_3d batch per scalar fallback (per-lane evaluation)
+      repariert — original stub durch echte Delegation an `single_simplex_3d` ersetzt.
+- [x] `hash_batch_3d_x` hat seed-Parameter
+- [x] `noise_generate_sample_3d` in `kernel.rs` delegiert nun an `noise::generate_3d`
+      statt duplicate dispatch-Logik.
+- [x] `build.rs` / Feature-Gates geprüft: Cargo Features (`sse2`, `sse41`, `avx2`, `avx512`, `neon`)
+      werden via `build.rs` korrekt auf `has_*` cfg-Flags gemappt. Automatische Erkennung via
+      `target_feature` als Fallback. `rustc-check-cfg` unterdrückt Warnings für custom cfgs.
 
 ### Wichtig (0.1 polish)
 
@@ -149,8 +151,12 @@ pub trait SimdInt: Copy {
 
 ### Backend-Auswahl (build.rs)
 
-Aktuell kein build.rs nötig. Feature-Gates auf `#[cfg(target_arch = "x86_64")]` / `#[cfg(target_arch = "aarch64")]`.
-`std::is_x86_feature_detected!` zur Laufzeit. Fallback `Scalar` für alles andere.
+`build.rs` mappt Cargo Features (`sse2`, `sse41`, `avx2`, `avx512`, `neon`) auf
+`has_*` cfg-Flags. Zusätzlich automatische Erkennung via `target_feature` vom Compiler.
+`rustc-check-cfg` unterdrückt Warnings für die custom cfgs.
+
+Ohne Feature-Flag: nur Scalar. Ohne passendes `target_feature`: nur Scalar.
+SIMD-Module werden nur mit aktivem Backend compiliert – sonst stub (alias auf Scalar).
 
 Vector-Lane-Zuordnung:
   SSE2:     __m128 (4xf32), __m128i (4xi32)
