@@ -112,10 +112,7 @@ impl SimdFloat for Avx2Float {
             // Newton-Raphson refinement
             let half = _mm256_set1_ps(0.5);
             let three_halfs = _mm256_set1_ps(1.5);
-            let tmp = _mm256_mul_ps(
-                _mm256_mul_ps(half, self.0),
-                _mm256_mul_ps(approx, approx),
-            );
+            let tmp = _mm256_mul_ps(_mm256_mul_ps(half, self.0), _mm256_mul_ps(approx, approx));
             Self(_mm256_mul_ps(approx, _mm256_sub_ps(three_halfs, tmp)))
         }
     }

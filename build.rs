@@ -51,7 +51,6 @@ fn main() {
             println!("cargo:rustc-cfg=has_neon");
         }
         _ => {}
-
     }
 
     // Re-run if build.rs or Cargo.toml changes

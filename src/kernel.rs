@@ -190,11 +190,7 @@ fn noise_generate_sample_3d<F: SimdFloat, I: SimdInt>(
 
 /// Compute a single sample by delegating to `noise::generate_2d`.
 #[inline]
-fn noise_generate_sample_2d<F: SimdFloat, I: SimdInt>(
-    settings: &Settings,
-    x: f32,
-    y: f32,
-) -> f32 {
+fn noise_generate_sample_2d<F: SimdFloat, I: SimdInt>(settings: &Settings, x: f32, y: f32) -> f32 {
     super::noise::generate_2d::<F, I>(settings, x, y)
 }
 
@@ -218,8 +214,7 @@ pub fn fill_noise_set_2d<F: SimdFloat, I: SimdInt>(
         // Process full SIMD chunks
         while x + vs <= start_x + width {
             let batch = noise_batch_2d::<F, I>(
-                settings, x as f32, y as f32,
-                1.0, // unit stride for consecutive x
+                settings, x as f32, y as f32, 1.0, // unit stride for consecutive x
             );
 
             unsafe {
@@ -234,8 +229,7 @@ pub fn fill_noise_set_2d<F: SimdFloat, I: SimdInt>(
         }
         // Scalar remainder
         while x < start_x + width {
-            noise_set_out[idx] =
-                noise_generate_sample_2d::<F, I>(settings, x as f32, y as f32);
+            noise_set_out[idx] = noise_generate_sample_2d::<F, I>(settings, x as f32, y as f32);
             idx += 1;
             x += 1;
         }

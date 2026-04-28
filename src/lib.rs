@@ -62,22 +62,56 @@ use simd::SimdLevel;
 macro_rules! simd_dispatch {
     ($level:expr, fill_noise_set_3d, $settings:expr, $sx:expr, $sy:expr, $sz:expr, $w:expr, $h:expr, $d:expr, $out:expr) => {{
         match $level {
-            SimdLevel::Avx512 => kernel::fill_noise_set_3d::<simd::avx512::Avx512Float, simd::avx512::Avx512Int>($settings, $sx, $sy, $sz, $w, $h, $d, $out),
-            SimdLevel::Avx2 => kernel::fill_noise_set_3d::<simd::avx2::Avx2Float, simd::avx2::Avx2Int>($settings, $sx, $sy, $sz, $w, $h, $d, $out),
-            SimdLevel::Sse41 => kernel::fill_noise_set_3d::<simd::sse41::Sse41Float, simd::sse41::Sse41Int>($settings, $sx, $sy, $sz, $w, $h, $d, $out),
-            SimdLevel::Sse2 => kernel::fill_noise_set_3d::<simd::sse2::Sse2Float, simd::sse2::Sse2Int>($settings, $sx, $sy, $sz, $w, $h, $d, $out),
-            SimdLevel::Neon => kernel::fill_noise_set_3d::<simd::neon::NeonFloat, simd::neon::NeonInt>($settings, $sx, $sy, $sz, $w, $h, $d, $out),
-            SimdLevel::Scalar => kernel::fill_noise_set_3d::<ScalarFloat, ScalarInt>($settings, $sx, $sy, $sz, $w, $h, $d, $out),
+            SimdLevel::Avx512 => kernel::fill_noise_set_3d::<
+                simd::avx512::Avx512Float,
+                simd::avx512::Avx512Int,
+            >($settings, $sx, $sy, $sz, $w, $h, $d, $out),
+            SimdLevel::Avx2 => kernel::fill_noise_set_3d::<
+                simd::avx2::Avx2Float,
+                simd::avx2::Avx2Int,
+            >($settings, $sx, $sy, $sz, $w, $h, $d, $out),
+            SimdLevel::Sse41 => kernel::fill_noise_set_3d::<
+                simd::sse41::Sse41Float,
+                simd::sse41::Sse41Int,
+            >($settings, $sx, $sy, $sz, $w, $h, $d, $out),
+            SimdLevel::Sse2 => kernel::fill_noise_set_3d::<
+                simd::sse2::Sse2Float,
+                simd::sse2::Sse2Int,
+            >($settings, $sx, $sy, $sz, $w, $h, $d, $out),
+            SimdLevel::Neon => kernel::fill_noise_set_3d::<
+                simd::neon::NeonFloat,
+                simd::neon::NeonInt,
+            >($settings, $sx, $sy, $sz, $w, $h, $d, $out),
+            SimdLevel::Scalar => kernel::fill_noise_set_3d::<ScalarFloat, ScalarInt>(
+                $settings, $sx, $sy, $sz, $w, $h, $d, $out,
+            ),
         }
     }};
     ($level:expr, fill_noise_set_2d, $settings:expr, $sx:expr, $sy:expr, $w:expr, $h:expr, $out:expr) => {{
         match $level {
-            SimdLevel::Avx512 => kernel::fill_noise_set_2d::<simd::avx512::Avx512Float, simd::avx512::Avx512Int>($settings, $sx, $sy, $w, $h, $out),
-            SimdLevel::Avx2 => kernel::fill_noise_set_2d::<simd::avx2::Avx2Float, simd::avx2::Avx2Int>($settings, $sx, $sy, $w, $h, $out),
-            SimdLevel::Sse41 => kernel::fill_noise_set_2d::<simd::sse41::Sse41Float, simd::sse41::Sse41Int>($settings, $sx, $sy, $w, $h, $out),
-            SimdLevel::Sse2 => kernel::fill_noise_set_2d::<simd::sse2::Sse2Float, simd::sse2::Sse2Int>($settings, $sx, $sy, $w, $h, $out),
-            SimdLevel::Neon => kernel::fill_noise_set_2d::<simd::neon::NeonFloat, simd::neon::NeonInt>($settings, $sx, $sy, $w, $h, $out),
-            SimdLevel::Scalar => kernel::fill_noise_set_2d::<ScalarFloat, ScalarInt>($settings, $sx, $sy, $w, $h, $out),
+            SimdLevel::Avx512 => kernel::fill_noise_set_2d::<
+                simd::avx512::Avx512Float,
+                simd::avx512::Avx512Int,
+            >($settings, $sx, $sy, $w, $h, $out),
+            SimdLevel::Avx2 => kernel::fill_noise_set_2d::<
+                simd::avx2::Avx2Float,
+                simd::avx2::Avx2Int,
+            >($settings, $sx, $sy, $w, $h, $out),
+            SimdLevel::Sse41 => kernel::fill_noise_set_2d::<
+                simd::sse41::Sse41Float,
+                simd::sse41::Sse41Int,
+            >($settings, $sx, $sy, $w, $h, $out),
+            SimdLevel::Sse2 => kernel::fill_noise_set_2d::<
+                simd::sse2::Sse2Float,
+                simd::sse2::Sse2Int,
+            >($settings, $sx, $sy, $w, $h, $out),
+            SimdLevel::Neon => kernel::fill_noise_set_2d::<
+                simd::neon::NeonFloat,
+                simd::neon::NeonInt,
+            >($settings, $sx, $sy, $w, $h, $out),
+            SimdLevel::Scalar => kernel::fill_noise_set_2d::<ScalarFloat, ScalarInt>(
+                $settings, $sx, $sy, $w, $h, $out,
+            ),
         }
     }};
 }
@@ -248,8 +282,16 @@ impl FastNoise {
         let mut out = vec![0.0_f32; count];
 
         simd_dispatch!(
-            self.simd_level, fill_noise_set_3d,
-            &self.settings, start_x, start_y, start_z, width, height, depth, &mut out
+            self.simd_level,
+            fill_noise_set_3d,
+            &self.settings,
+            start_x,
+            start_y,
+            start_z,
+            width,
+            height,
+            depth,
+            &mut out
         );
 
         out
@@ -272,8 +314,14 @@ impl FastNoise {
         let mut out = vec![0.0_f32; count];
 
         simd_dispatch!(
-            self.simd_level, fill_noise_set_2d,
-            &self.settings, start_x, start_y, width, height, &mut out
+            self.simd_level,
+            fill_noise_set_2d,
+            &self.settings,
+            start_x,
+            start_y,
+            width,
+            height,
+            &mut out
         );
 
         out

@@ -123,10 +123,7 @@ impl SimdFloat for Avx512Float {
             // Newton-Raphson refinement
             let half = _mm512_set1_ps(0.5);
             let three_halfs = _mm512_set1_ps(1.5);
-            let tmp = _mm512_mul_ps(
-                _mm512_mul_ps(half, self.0),
-                _mm512_mul_ps(approx, approx),
-            );
+            let tmp = _mm512_mul_ps(_mm512_mul_ps(half, self.0), _mm512_mul_ps(approx, approx));
             Self(_mm512_mul_ps(approx, _mm512_sub_ps(three_halfs, tmp)))
         }
     }

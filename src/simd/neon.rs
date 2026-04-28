@@ -126,10 +126,7 @@ impl SimdFloat for NeonFloat {
             // Newton-Raphson refinement
             let half = vdupq_n_f32(0.5);
             let three_halfs = vdupq_n_f32(1.5);
-            let tmp = vmulq_f32(
-                vmulq_f32(half, self.0),
-                vmulq_f32(approx, approx),
-            );
+            let tmp = vmulq_f32(vmulq_f32(half, self.0), vmulq_f32(approx, approx));
             Self(vmulq_f32(approx, vsubq_f32(three_halfs, tmp)))
         }
     }

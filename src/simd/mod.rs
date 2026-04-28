@@ -79,11 +79,7 @@ fn detect_simd_level_impl() -> SimdLevel {
     SimdLevel::Neon
 }
 
-#[cfg(not(any(
-    target_arch = "x86",
-    target_arch = "x86_64",
-    target_arch = "aarch64"
-)))]
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
 fn detect_simd_level_impl() -> SimdLevel {
     SimdLevel::Scalar
 }
@@ -219,15 +215,9 @@ pub(crate) mod avx512 {
 }
 
 // Note: neon.rs is a stub (scalar fallback) until full NEON implementation.
-#[cfg(all(
-    any(target_arch = "aarch64", target_arch = "arm"),
-    has_neon
-))]
+#[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), has_neon))]
 pub(crate) mod neon;
-#[cfg(not(all(
-    any(target_arch = "aarch64", target_arch = "arm"),
-    has_neon
-)))]
+#[cfg(not(all(any(target_arch = "aarch64", target_arch = "arm"), has_neon)))]
 #[allow(dead_code)]
 pub(crate) mod neon {
     pub(crate) use super::scalar::ScalarFloat as NeonFloat;
