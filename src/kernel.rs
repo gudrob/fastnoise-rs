@@ -51,26 +51,24 @@ fn lerp_simd<F: SimdFloat>(a: F, b: F, t: F) -> F {
 // Batched Value Noise 3D
 // ============================================================================
 
-/// Compute value noise for VECTOR_SIZE x-coordinates in parallel.
+/// Compute value noise for VECTOR_SIZE coordinates in parallel.
 ///
-/// All lanes share the same y, z, seed. x varies per lane.
+/// Each lane has its own (x, y, z) which may vary independently
+/// (e.g. after perturbation). Interpolation is fully SIMD.
 #[inline]
 fn value_noise_3d_batch<F: SimdFloat, I: SimdInt>(
     seed: i32,
-    x: F, // VECTOR_SIZE x coords
-    y: f32,
-    z: f32,
+    x: F,
+    y: F,
+    z: F,
 ) -> F {
-    // Extract x scalars, compute per-lane, load into SIMD.
-    // Trilinear interpolation of hash values is done in SIMD.
     unsafe {
         let mut x_scalars = [0.0_f32; 16];
+        let mut y_scalars = [0.0_f32; 16];
+        let mut z_scalars = [0.0_f32; 16];
         F::store(x_scalars.as_mut_ptr(), x);
-
-        let iy = y.floor() as i32;
-        let iz = z.floor() as i32;
-        let fy = y - iy as f32;
-        let fz = z - iz as f32;
+        F::store(y_scalars.as_mut_ptr(), y);
+        F::store(z_scalars.as_mut_ptr(), z);
 
         let mut v000 = [0.0_f32; 16];
         let mut v100 = [0.0_f32; 16];
@@ -81,11 +79,19 @@ fn value_noise_3d_batch<F: SimdFloat, I: SimdInt>(
         let mut v011 = [0.0_f32; 16];
         let mut v111 = [0.0_f32; 16];
         let mut fx_arr = [0.0_f32; 16];
+        let mut fy_arr = [0.0_f32; 16];
+        let mut fz_arr = [0.0_f32; 16];
 
         for i in 0..F::VECTOR_SIZE {
             let xi = x_scalars[i];
+            let yi = y_scalars[i];
+            let zi = z_scalars[i];
             let ix = xi.floor() as i32;
+            let iy = yi.floor() as i32;
+            let iz = zi.floor() as i32;
             fx_arr[i] = xi - ix as f32;
+            fy_arr[i] = yi - iy as f32;
+            fz_arr[i] = zi - iz as f32;
 
             v000[i] = hash::val_coord_f32(seed, ix, iy, iz);
             v100[i] = hash::val_coord_f32(seed, ix + 1, iy, iz);
@@ -107,11 +113,13 @@ fn value_noise_3d_batch<F: SimdFloat, I: SimdInt>(
         let v111_s = F::load(v111.as_ptr());
 
         let fx_simd = F::load(fx_arr.as_ptr());
+        let fy_simd = F::load(fy_arr.as_ptr());
+        let fz_simd = F::load(fz_arr.as_ptr());
         let sx = smoothstep_simd(fx_simd);
-        let sy = F::set(smoothstep(fy));
-        let sz = F::set(smoothstep(fz));
+        let sy = smoothstep_simd(fy_simd);
+        let sz = smoothstep_simd(fz_simd);
 
-        // Trilinear interpolation
+        // Trilinear interpolation — fully in SIMD
         let i0 = lerp_simd(v000_s, v100_s, sx);
         let i1 = lerp_simd(v010_s, v110_s, sx);
         let i2 = lerp_simd(v001_s, v101_s, sx);
@@ -268,30 +276,87 @@ fn noise_batch_3d<F: SimdFloat, I: SimdInt>(
 ) -> F {
     let x = coord_x::<F>(base_x, stride);
     // Scale coordinates
-    let x = x.mul(F::set(settings.x_scale * settings.frequency));
-    let y_scaled = y * settings.y_scale * settings.frequency;
-    let z_scaled = z * settings.z_scale * settings.frequency;
+    let freq_x = settings.x_scale * settings.frequency;
+    let freq_y = settings.y_scale * settings.frequency;
+    let freq_z = settings.z_scale * settings.frequency;
+    let x = x.mul(F::set(freq_x));
 
-    let _y_simd = F::set(y_scaled);
-    let _z_simd = F::set(z_scaled);
+    let has_perturb = settings.perturb_type != crate::settings::PerturbType::None;
 
-    let value = match settings.noise_type {
-        NoiseType::Value => value_noise_3d_batch::<F, I>(settings.seed, x, y_scaled, z_scaled),
-        NoiseType::Perlin => perlin_noise_3d_batch::<F, I>(settings.seed, x, y_scaled, z_scaled),
-        NoiseType::Simplex => simplex_noise_3d_batch::<F, I>(settings.seed, x, y_scaled, z_scaled),
+    match settings.noise_type {
+        NoiseType::Value | NoiseType::Perlin if has_perturb => {
+            // Compute perturbed (x, y, z) per-lane, then run SIMD batch kernel
+            perturb_then_batch::<F, I>(settings, base_x, y, z, stride, freq_x, freq_y, freq_z)
+        }
+        NoiseType::Value => {
+            let y_simd = F::set(y * freq_y);
+            let z_simd = F::set(z * freq_z);
+            value_noise_3d_batch::<F, I>(settings.seed, x, y_simd, z_simd)
+        }
+        NoiseType::Perlin => {
+            let y_simd = F::set(y * freq_y);
+            let z_simd = F::set(z * freq_z);
+            perlin_noise_3d_batch::<F, I>(settings.seed, x, y_simd, z_simd)
+        }
+        NoiseType::Simplex => {
+            let y_scaled = y * freq_y;
+            let z_scaled = z * freq_z;
+            // Simplex is always per-lane; perturb is handled inside generate_3d
+            if has_perturb {
+                build_batch_scalar::<F, I>(settings, base_x, y, z, stride)
+            } else {
+                simplex_noise_3d_batch::<F, I>(settings.seed, x, y_scaled, z_scaled)
+            }
+        }
         _ => {
-            // Non-batched noise types fall back to scalar per-lane
-            // For fractal/cellular/cubic/white noise, we build per-lane
+            // Non-batched noise types fall back to scalar per-lane.
+            // `noise::generate_3d` handles perturb internally.
             build_batch_scalar::<F, I>(settings, base_x, y, z, stride)
         }
-    };
+    }
+}
 
-    // Apply perturb (scalar per-lane for now)
-    if settings.perturb_type != crate::settings::PerturbType::None {
-        // Perturb is complex; fall back to per-lane
-        build_batch_perturbed::<F, I>(settings, base_x, y, z, stride)
-    } else {
-        value
+/// Compute perturbed coordinates per-lane, then feed into SIMD Value/Perlin batch kernel.
+///
+/// Avoids the old "compute SIMD value then discard it" pattern that forced
+/// full per-lane reevaluation when perturbation was active.
+fn perturb_then_batch<F: SimdFloat, I: SimdInt>(
+    settings: &Settings,
+    base_x: f32,
+    y: f32,
+    z: f32,
+    stride: f32,
+    freq_x: f32,
+    freq_y: f32,
+    freq_z: f32,
+) -> F {
+    unsafe {
+        let mut px_arr = [0.0_f32; 16];
+        let mut py_arr = [0.0_f32; 16];
+        let mut pz_arr = [0.0_f32; 16];
+        for i in 0..F::VECTOR_SIZE {
+            let sx = (base_x + stride * i as f32) * freq_x;
+            let sy = y * freq_y;
+            let sz = z * freq_z;
+            let (nx, ny, nz) =
+                super::perturb::perturb_coords::<F, I>(settings, sx, sy, sz);
+            px_arr[i] = nx;
+            py_arr[i] = ny;
+            pz_arr[i] = nz;
+        }
+        let px = F::load(px_arr.as_ptr());
+        let py = F::load(py_arr.as_ptr());
+        let pz = F::load(pz_arr.as_ptr());
+
+        match settings.noise_type {
+            NoiseType::Value | NoiseType::ValueFractal => {
+                value_noise_3d_batch::<F, I>(settings.seed, px, py, pz)
+            }
+            _ => {
+                // Perlin or PerlinFractal
+                perlin_noise_3d_batch::<F, I>(settings.seed, px, py, pz)
+            }
+        }
     }
 }
 
@@ -313,35 +378,11 @@ fn build_batch_scalar<F: SimdFloat, I: SimdInt>(
     }
 }
 
-/// Build a batch with perturb applied per-lane.
-///
-/// Scales coordinates before calling `perturb::perturb_3d`,
-/// matching the coordinate scaling that `noise::generate_3d` performs
-/// before its perturb dispatch.
-fn build_batch_perturbed<F: SimdFloat, I: SimdInt>(
-    settings: &Settings,
-    base_x: f32,
-    y: f32,
-    z: f32,
-    stride: f32,
-) -> F {
-    unsafe {
-        let mut values = [0.0_f32; 16];
-        for (i, elem) in values.iter_mut().enumerate().take(F::VECTOR_SIZE) {
-            let sx = (base_x + stride * i as f32) * settings.x_scale * settings.frequency;
-            let sy = y * settings.y_scale * settings.frequency;
-            let sz = z * settings.z_scale * settings.frequency;
-            *elem = super::perturb::perturb_3d::<F, I>(settings, sx, sy, sz);
-        }
-        F::load(values.as_ptr())
-    }
-}
-
 // ============================================================================
 // Batched Perlin Noise 3D
 // ============================================================================
 
-fn perlin_noise_3d_batch<F: SimdFloat, I: SimdInt>(seed: i32, x: F, y: f32, z: f32) -> F {
+fn perlin_noise_3d_batch<F: SimdFloat, I: SimdInt>(seed: i32, x: F, y: F, z: F) -> F {
     unsafe {
         let mut g000 = [0.0_f32; 16];
         let mut g100 = [0.0_f32; 16];
@@ -353,16 +394,22 @@ fn perlin_noise_3d_batch<F: SimdFloat, I: SimdInt>(seed: i32, x: F, y: f32, z: f
         let mut g111 = [0.0_f32; 16];
 
         let mut x_scalars = [0.0_f32; 16];
+        let mut y_scalars = [0.0_f32; 16];
+        let mut z_scalars = [0.0_f32; 16];
         F::store(x_scalars.as_mut_ptr(), x);
+        F::store(y_scalars.as_mut_ptr(), y);
+        F::store(z_scalars.as_mut_ptr(), z);
 
         for i in 0..F::VECTOR_SIZE {
             let xi = x_scalars[i];
+            let yi = y_scalars[i];
+            let zi = z_scalars[i];
             let ix = xi.floor() as i32;
+            let iy = yi.floor() as i32;
+            let iz = zi.floor() as i32;
             let fx = xi - ix as f32;
-            let fy = y - y.floor();
-            let fz = z - z.floor();
-            let iy = y.floor() as i32;
-            let iz = z.floor() as i32;
+            let fy = yi - iy as f32;
+            let fz = zi - iz as f32;
 
             g000[i] = grad_coord_batch(seed, ix, iy, iz, fx, fy, fz);
             g100[i] = grad_coord_batch(seed, ix + 1, iy, iz, fx - 1.0, fy, fz);
@@ -371,7 +418,9 @@ fn perlin_noise_3d_batch<F: SimdFloat, I: SimdInt>(seed: i32, x: F, y: f32, z: f
             g001[i] = grad_coord_batch(seed, ix, iy, iz + 1, fx, fy, fz - 1.0);
             g101[i] = grad_coord_batch(seed, ix + 1, iy, iz + 1, fx - 1.0, fy, fz - 1.0);
             g011[i] = grad_coord_batch(seed, ix, iy + 1, iz + 1, fx, fy - 1.0, fz - 1.0);
-            g111[i] = grad_coord_batch(seed, ix + 1, iy + 1, iz + 1, fx - 1.0, fy - 1.0, fz - 1.0);
+            g111[i] = grad_coord_batch(
+                seed, ix + 1, iy + 1, iz + 1, fx - 1.0, fy - 1.0, fz - 1.0,
+            );
         }
 
         let g000_s = F::load(g000.as_ptr());
@@ -388,12 +437,12 @@ fn perlin_noise_3d_batch<F: SimdFloat, I: SimdInt>(seed: i32, x: F, y: f32, z: f
         let mut fz_arr = [0.0_f32; 16];
         for i in 0..F::VECTOR_SIZE {
             fx_arr[i] = x_scalars[i] - x_scalars[i].floor();
-            fy_arr[i] = y - y.floor();
-            fz_arr[i] = z - z.floor();
+            fy_arr[i] = y_scalars[i] - y_scalars[i].floor();
+            fz_arr[i] = z_scalars[i] - z_scalars[i].floor();
         }
         let fx_simd = F::load(fx_arr.as_ptr());
-        let fy_simd = F::set(fy_arr[0]);
-        let fz_simd = F::set(fz_arr[0]);
+        let fy_simd = F::load(fy_arr.as_ptr());
+        let fz_simd = F::load(fz_arr.as_ptr());
 
         let sx = smoothstep_simd(fx_simd);
         let sy = smoothstep_simd(fy_simd);
@@ -445,12 +494,6 @@ fn simplex_noise_3d_batch<F: SimdFloat, I: SimdInt>(seed: i32, x: F, y: f32, z: 
         }
         F::load(values.as_ptr())
     }
-}
-
-/// Scalar smoothstep used in batch helpers.
-#[inline]
-fn smoothstep(t: f32) -> f32 {
-    t * t * (3.0 - 2.0 * t)
 }
 
 #[cfg(test)]

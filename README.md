@@ -80,10 +80,12 @@ FastNoise::generate_grid(start_x, start_y, start_z, w, h, d)
 - [ ] **Test gegen C-Referenzwerte (golden file):**
       FastNoiseSIMD mit seed 1337, bekannte Koordinaten, Werte in Datei speichern,
       gegen Rust-Output diffen. Ohne das keine Garantie auf Bit-Identität.
-- [ ] **Perturb in kernel.rs integrieren:**
-      Perturb fällt in `kernel::noise_batch_3d` noch auf per-lane-Fallback zurück.
-      Eine echte SIMD-Batch-Implementierung fehlt. Per-Lane-Fallback funktioniert
-      korrekt (alle Tests grün), ist aber suboptimal für Performance.
+- [x] **Perturb in kernel.rs integriert:**
+      Perturbierte Koordinaten werden jetzt per-lane berechnet (via `perturb_coords`),
+      dann in SIMD-Register geladen und an `value_noise_3d_batch`/`perlin_noise_3d_batch`
+      übergeben. Value- und Perlin-Grids mit aktiver Perturbation nutzen jetzt den
+      vollen SIMD-Kernel statt komplettem per-lane-Fallback.
+      Simplex und andere Noise-Typen fallen weiterhin auf per-lane zurück.
 - [x] **Frequenz-Skalierung geprüft:**
       Skalierung (`x * x_scale * frequency`) ist konsistent zwischen
       Single-Point-Pfad (`noise.rs:generate_3d`) und Batch-Kernel (`kernel.rs:noise_batch_3d`).

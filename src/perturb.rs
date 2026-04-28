@@ -7,6 +7,28 @@
 use crate::settings::{NoiseType, PerturbType, Settings};
 use crate::simd::{SimdFloat, SimdInt};
 
+/// Perturb 3D coordinates only — returns the warped (x, y, z) without evaluating noise.
+///
+/// Used by the SIMD batch kernel to compute perturbed coordinates per-lane,
+/// then feed them into the batched Value/Perlin kernel for speed.
+pub fn perturb_coords<F: SimdFloat, I: SimdInt>(
+    settings: &Settings,
+    x: f32,
+    y: f32,
+    z: f32,
+) -> (f32, f32, f32) {
+    match settings.perturb_type {
+        PerturbType::Gradient => perturb_gradient_3d::<F, I>(settings, x, y, z),
+        PerturbType::GradientFractal => perturb_gradient_fractal_3d::<F, I>(settings, x, y, z),
+        PerturbType::Normalise => perturb_normalise_3d::<F, I>(settings, x, y, z),
+        PerturbType::GradientNormalise => perturb_gradient_normalise_3d::<F, I>(settings, x, y, z),
+        PerturbType::GradientFractalNormalise => {
+            perturb_gradient_normalise_fractal_3d::<F, I>(settings, x, y, z)
+        }
+        _ => (x, y, z),
+    }
+}
+
 /// Perturb 3D coordinates and evaluate noise at the perturbed location.
 /// Uses the `single_*_3d` functions directly to avoid infinite recursion.
 pub fn perturb_3d<F: SimdFloat, I: SimdInt>(settings: &Settings, x: f32, y: f32, z: f32) -> f32 {
