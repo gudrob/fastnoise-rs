@@ -36,12 +36,12 @@ impl SimdFloat for Avx2Float {
 
     #[inline]
     unsafe fn load(ptr: *const f32) -> Self {
-        Self(_mm256_load_ps(ptr))
+        Self(_mm256_loadu_ps(ptr))
     }
 
     #[inline]
     unsafe fn store(ptr: *mut f32, value: Self) {
-        _mm256_store_ps(ptr, value.0);
+        _mm256_storeu_ps(ptr, value.0);
     }
 
     // --- Arithmetic ---

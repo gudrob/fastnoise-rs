@@ -35,12 +35,12 @@ impl SimdFloat for Sse41Float {
 
     #[inline]
     unsafe fn load(ptr: *const f32) -> Self {
-        Self(_mm_load_ps(ptr))
+        Self(_mm_loadu_ps(ptr))
     }
 
     #[inline]
     unsafe fn store(ptr: *mut f32, value: Self) {
-        _mm_store_ps(ptr, value.0);
+        _mm_storeu_ps(ptr, value.0);
     }
 
     #[inline]

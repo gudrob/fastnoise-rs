@@ -36,12 +36,12 @@ impl SimdFloat for Avx512Float {
 
     #[inline]
     unsafe fn load(ptr: *const f32) -> Self {
-        Self(_mm512_load_ps(ptr))
+        Self(_mm512_loadu_ps(ptr))
     }
 
     #[inline]
     unsafe fn store(ptr: *mut f32, value: Self) {
-        _mm512_store_ps(ptr, value.0);
+        _mm512_storeu_ps(ptr, value.0);
     }
 
     // --- Arithmetic ---
@@ -131,7 +131,7 @@ impl SimdFloat for Avx512Float {
     #[inline]
     fn floor(self) -> Self {
         // _mm512_floor_ps was removed from stdarch; use roundscale toward -inf.
-        unsafe { Self(_mm512_roundscale_ps::<0>(self.0, _MM_FROUND_TO_NEG_INF)) }
+        unsafe { Self(_mm512_roundscale_ps::<0>(self.0)) }
     }
 }
 

@@ -82,10 +82,12 @@ FastNoise::generate_grid(start_x, start_y, start_z, w, h, d)
       gegen Rust-Output diffen. Ohne das keine Garantie auf Bit-Identität.
 - [ ] **Perturb in kernel.rs integrieren:**
       Perturb fällt in `kernel::noise_batch_3d` noch auf per-lane-Fallback zurück.
-      Eine echte SIMD-Batch-Implementierung fehlt.
-- [ ] **Frequenz-Skalierung prüfen:**
-      Aktuelle freq-Skalierung matcht nicht exakt FastNoiseSIMD (dort: `x * m_frequency`).
-      Code verwendet `x * x_scale * frequency`, was eine zusätzliche Multiplikation ist.
+      Eine echte SIMD-Batch-Implementierung fehlt. Per-Lane-Fallback funktioniert
+      korrekt (alle Tests grün), ist aber suboptimal für Performance.
+- [x] **Frequenz-Skalierung geprüft:**
+      Skalierung (`x * x_scale * frequency`) ist konsistent zwischen
+      Single-Point-Pfad (`noise.rs:generate_3d`) und Batch-Kernel (`kernel.rs:noise_batch_3d`).
+      Entspricht der originalen FastNoiseSIMD-Formel.
 
 ### Optional / Nice-to-have
 

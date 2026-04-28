@@ -48,7 +48,6 @@ pub use simd::SimdLevel;
 pub use vectorset::NoiseVectorSet;
 
 use simd::scalar::{ScalarFloat, ScalarInt};
-use simd::SimdLevel as _;
 
 // ============================================================================
 // SIMD Dispatch Helpers
@@ -273,13 +272,21 @@ impl FastNoise {
 
     /// Get noise value at (x, y, z).
     pub fn get_noise_3d(&self, x: f32, y: f32, z: f32) -> f32 {
-        debug_assert!(self.settings.validate().is_ok(), "{}", self.settings.validate().unwrap_err());
+        debug_assert!(
+            self.settings.validate().is_ok(),
+            "{}",
+            self.settings.validate().unwrap_err()
+        );
         noise::generate_3d::<ScalarFloat, ScalarInt>(&self.settings, x, y, z)
     }
 
     /// Get noise value at (x, y).
     pub fn get_noise_2d(&self, x: f32, y: f32) -> f32 {
-        debug_assert!(self.settings.validate().is_ok(), "{}", self.settings.validate().unwrap_err());
+        debug_assert!(
+            self.settings.validate().is_ok(),
+            "{}",
+            self.settings.validate().unwrap_err()
+        );
         noise::generate_2d::<ScalarFloat, ScalarInt>(&self.settings, x, y)
     }
 
