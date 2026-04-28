@@ -48,33 +48,6 @@ fn lerp_simd<F: SimdFloat>(a: F, b: F, t: F) -> F {
 }
 
 // ============================================================================
-// SIMD Hash Functions
-// ============================================================================
-
-/// Batched hash: computes `val_coord` for VECTOR_SIZE coordinate triples
-/// and returns SIMD float results in [-1, 1).
-///
-/// Each lane computes: `val_coord_f32(seed, ix + stride*i, iy, iz)`
-#[allow(dead_code)]
-#[inline]
-fn hash_batch_3d_x<F: SimdFloat, I: SimdInt>(
-    seed: i32,
-    base_x: i32,
-    y: i32,
-    z: i32,
-    stride_x: i32,
-) -> F {
-    unsafe {
-        let mut arr = [0.0_f32; 16];
-        for i in 0..F::VECTOR_SIZE {
-            let ix = base_x + stride_x * i as i32;
-            arr[i] = hash::val_coord_f32(seed, ix, y, z);
-        }
-        F::load(arr.as_ptr())
-    }
-}
-
-// ============================================================================
 // Batched Value Noise 3D
 // ============================================================================
 

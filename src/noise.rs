@@ -237,21 +237,10 @@ pub(crate) fn single_simplex_3d<F: SimdFloat, I: SimdInt>(
     y: f32,
     z: f32,
 ) -> f32 {
-    // Skew factor for 3D: (sqrt(4) - 1) / 3 ≈ 0.3333...
-    #[allow(dead_code)]
-    const F3: f32 = 1.0 / 3.0;
-    // Unskew factor: (sqrt(4) - 1) / 3 ≈ 1/3? No:
-    // Skew: (sqrt(n+1)-1)/n = (sqrt(4)-1)/3 = 1/3
-    // Unskew: (n+1-sqrt(n+1))/(n*(n+1))? Actually:
-    // Unskew: (1/sqrt(n+1)-1)/n with the inverse... simpler:
-    #[allow(dead_code)]
-    const G3: f32 = 1.0 / 6.0;
-    // Correct 3D simplex factors:
-    const SKEW_3D: f32 = 1.0 / 3.0; // (sqrt(4)-1)/3
-    const UNSKEW_3D: f32 = 1.0 / 6.0; // (1/sqrt(4)-1)/3 ... no, that's -1/6
-
-    // Actually, the standard 3D simplex skew/unskew from the original paper:
+    // Standard 3D simplex skew/unskew from the original paper:
     // F3 = 1/3, G3 = 1/6
+    const SKEW_3D: f32 = 1.0 / 3.0;
+    const UNSKEW_3D: f32 = 1.0 / 6.0;
     let s = (x + y + z) * SKEW_3D;
     let ix = (x + s).floor() as i32;
     let iy = (y + s).floor() as i32;

@@ -18,7 +18,7 @@ Alle Noise-Funktionen arbeiten im `VECTOR_SIZE` breiten Batch-Modus.
   Scalar=1, SSE2/SSE41/NEON=4, AVX2=8, AVX512=16
 
 Dispatching bei `FastNoise::new()` via `std::is_x86_feature_detected!` / `std::is_aarch64_feature_detected!`.
-Zur Laufzeit wird eine Funktionstabelle (`NoiseKernel`) mit SIMD-gecasteten Funktionspointern aufgebaut.
+Zur Laufzeit wird via `simd_dispatch!`-Makro die richtige monomorphisierte `kernel::fill_noise_set_*`-Funktion aufgerufen.
 
 ### Datei-Übersicht
 
@@ -29,16 +29,17 @@ src/
   hash.rs         — xorshift32 PRNG, val_coord_f32 (deterministischer Hash aus Koordinaten).
                       Lookup-Tabelle aus `FN_DECIMAL` für Integer→Float-Konversion.
   vectorset.rs    — Gradient-Vektor-Tabelle (24 Vektoren) für Perlin/Simplex.
-  kernel.rs       — Batched SIMD-Kernel: smoothstep, lerp, koordinaten-batching, Grid-Fills.
-  noise.rs        — Pro Noise-Type eine Funktion (value_2d/3d, perlin_2d/3d, simplex_2d/3d etc.).
-                      Alle arbeiten mit generischen F: SimdFloat + I: SimdInt.
+  kernel.rs       — Batched SIMD-Kernel: smoothstep, lerp, Grid-Fills,
+                      Batch-Funktionen für Value/Perlin/Simplex + per-lane-Fallback.
+  noise.rs        — Single-sample Noise-Funktionen (value_2d/3d, perlin_2d/3d, simplex_2d/3d etc.).
+                      Generisch über F: SimdFloat + I: SimdInt.
   fractal.rs      — fBm, Billow, RigidMulti. Octaven-Schleife in SIMD.
   perturb.rs      — Domain Warping: sampler-Ergebnis als Input für weiteren Noise-Call.
   simd/
     mod.rs        — Traits: SimdFloat, SimdInt. Methoden: set, mul_add, floor, blend, cmp_gt etc.
-    scalar.rs     — 1-Lane Fallback. Alle Operationen als einfache f32/i32-Wrapper.
+    scalar.rs     — 1-Lane Fallback. Alle Operationen als f32/i32-Wrapper.
     sse2.rs       — 4-Lane x86_64 SSE2 (baseline auf amd64).
-    sse41.rs      — 4-Lane SSE4.1 (floor, blend, i32-mul via _mm_mullo_epi32).
+    sse41.rs      — 4-Lane SSE4.1 (floor via _mm_floor_ps, i32-mul via _mm_mullo_epi32).
     avx2.rs       — 8-Lane AVX2 + FMA (256-bit).
     avx512.rs     — 16-Lane AVX-512F (512-bit). Blend via Masks, floor via _mm512_roundscale_ps.
     neon.rs       — 4-Lane ARM NEON (aarch64).
@@ -51,64 +52,69 @@ benches/
 ```
 Settings (Frequenz, Achsen-Skalen, Seed)
   → Skalierte Koordinaten (x*FREQ * X_SCALE)
-  → Noise-Funktion aus noise.rs (generisch über SimdFloat)
+  → noise::generate_3d (generisch über SimdFloat)
       → Cell-Indizes per floor()
-      → Hash pro Lane per hash.rs
+      → Hash per hash.rs
       → Interpolation (Hermite/Lerp/Bicubic)
   → Fractal-Overlay (octaves-Schleife)
   → Perturb (rekursiver Noise-Call mit perturbierter Koordinate)
-  → [0..1] clamp
+  → f32 return
 ```
 
-### Merge-Konflikt Doku (kurz)
+### Datenfluss Grid (generate_grid)
 
-Stand nach 23 commits ab HEAD. Branch `simd-batch-kernel` hat `kernel.rs` introziert
-(alle noise-Funktionen von `noise.rs` nach `kernel.rs` portiert aber inkomplett integriert).
-`lib.rs` Grid-Generatoren rufen noch `noise.rs` Funktionen. Nächster Schritt:
-
-  1. `lib.rs` Grid-Generatoren auf `kernel.rs` Funktionen umstellen
-  2. `noise.rs` obsolet machen (entweder löschen oder als legacy behalten)
-  3. SIMD-Dispatch so umbauen dass `kernel.rs` generics über Box<dyn Trait> statt Monomorphisation.
+```
+FastNoise::generate_grid(start_x, start_y, start_z, w, h, d)
+  → simd_dispatch!(level, fill_noise_set_3d, settings, …)
+      → kernel::fill_noise_set_3d::<SIMD_FLOAT, SIMD_INT>
+          → Pro y,z-Iteration: VECTOR_SIZE x-Werte per Batch (Value/Perlin/Simplex)
+              → Fallback: per-lane via noise::generate_3d (Fractal/Cellular/Cubic/WhiteNoise)
+```
 
 ---
 
 ## TODOs
 
-### Kritisch (blocker für 0.1 release)
+### Kritisch / offen
 
-- [x] `lib.rs` Grid-Generatoren (`generate_grid_2d`/`3d`) von `noise::value_2d` auf
-      `kernel::fill_noise_set_3d`/`fill_noise_set_2d` umgestellt.
-      Value/Perlin/Simplex nutzen SIMD-Kernel, rest per scalar fallback.
-- [x] `kernel.rs` simplex_3d batch per scalar fallback (per-lane evaluation)
-      repariert — original stub durch echte Delegation an `single_simplex_3d` ersetzt.
-- [x] `hash_batch_3d_x` hat seed-Parameter
-- [x] `noise_generate_sample_3d` in `kernel.rs` delegiert nun an `noise::generate_3d`
-      statt duplicate dispatch-Logik.
-- [x] `build.rs` / Feature-Gates geprüft: Cargo Features (`sse2`, `sse41`, `avx2`, `avx512`, `neon`)
-      werden via `build.rs` korrekt auf `has_*` cfg-Flags gemappt. Automatische Erkennung via
-      `target_feature` als Fallback. `rustc-check-cfg` unterdrückt Warnings für custom cfgs.
-
-### Wichtig (0.1 polish)
-
-- [ ] Test gegen C-Referenzwerte (golden file):
+- [ ] **Test gegen C-Referenzwerte (golden file):**
       FastNoiseSIMD mit seed 1337, bekannte Koordinaten, Werte in Datei speichern,
       gegen Rust-Output diffen. Ohne das keine Garantie auf Bit-Identität.
-- [ ] Benchmarks mit SIMD-Backends laufen lassen (nicht nur scalar).
-      Aktuell alle benches scalar weil kernel.rs dispatch fehlt.
-- [ ] `kernel.rs` `#[allow(dead_code)]` aufräumen nach Grid-Integration.
-- [ ] Frequenz-Berechnung in fill_* Funktionen prüfen:
-      aktuelle freq Skalierung matcht nicht exakt FastNoiseSIMD (dort: `x * m_frequency`).
-- [ ] Perturb in kernel.rs portieren: aktuell nur noise.rs/perturb.rs.
-- [ ] Error-Handling: Settings-Validierung (Frequenz > 0, Octaves > 0, etc.)
+- [ ] **Benchmarks mit SIMD-Backends laufen lassen** (nicht nur scalar).
+      Aktuell benchen alle benches im Scalar-Modus. Benchmarks müssen für alle
+      Backends echte SIMD-Pfade durchlaufen.
+- [ ] **Perturb in kernel.rs integrieren:**
+      Perturb fällt in `kernel::noise_batch_3d` noch auf per-lane-Fallback zurück.
+      Eine echte SIMD-Batch-Implementierung fehlt.
+- [ ] **Frequenz-Skalierung prüfen:**
+      Aktuelle freq-Skalierung matcht nicht exakt FastNoiseSIMD (dort: `x * m_frequency`).
+      Code verwendet `x * x_scale * frequency`, was eine zusätzliche Multiplikation ist.
+- [ ] **Error-Handling:** Settings-Validierung (Frequenz > 0, Octaves > 0, etc.)
 
 ### Optional / Nice-to-have
 
-- [ ] Cellular Return-Types implementieren die noch fehlen (NoiseLookup, Distance2Cave, etc.)
+- [ ] Cellular Return-Types implementieren die noch fehlen (werden von `CellularReturnType` enum
+      zwar definiert, aber nicht alle sind getestet/validiert).
 - [ ] SIMD-Trait um sqrt/rsqrt erweitern (aktuell per-Lane scalar `f32::sqrt`).
 - [ ] NEON-Tests auf echter ARM-Hardware (aktuell nur compiliert, nie getestet).
 - [ ] AVX-512 Tests auf Hardware mit AVX-512F (z.B. Skylake-X, Ice Lake).
-- [ ] C-FFI Schnittstelle (extern "C" fn), kompatibel zur originalen FastNoiseSIMD C-API.
+- [ ] C-FFI Schnittstelle (`extern "C" fn`), kompatibel zur originalen FastNoiseSIMD C-API.
 - [ ] `#[no_std]` support (nur alloc für Vec, keine std-Deps).
+- [ ] `noise.rs` und `kernel.rs` zusammenführen: `noise.rs` enthält die Single-Sample-Funktionen,
+      `kernel.rs` die Batch-Kernel. Langfristig könnten die Batch-Kernel die Single-Sample
+      komplett ersetzen.
+
+### Erledigt
+
+- [x] Grid-Generatoren (`generate_grid`/`generate_grid_2d`) dispatch-en via `simd_dispatch!`
+      auf `kernel::fill_noise_set_3d`/`fill_noise_set_2d`.
+      Value/Perlin/Simplex nutzen SIMD-Kernel, Rest per scalar fallback.
+- [x] `kernel.rs` simplex_3d batch per scalar fallback (per-lane evaluation).
+- [x] `hash_batch_3d_x` totcode entfernt.
+- [x] `noise.rs` tote Konstanten `F3`/`G3` mit `#[allow(dead_code)]` entfernt.
+- [x] `build.rs` / Feature-Gates geprüft: Cargo Features (`sse2`, `sse41`, `avx2`, `avx512`, `neon`)
+      via `build.rs` korrekt auf `has_*` cfg-Flags gemappt. Automatische Erkennung via
+      `target_feature` als Fallback. `rustc-check-cfg` unterdrückt Warnings.
 
 ---
 
@@ -130,7 +136,6 @@ pub trait SimdFloat: Copy {
     fn floor(self) -> Self;
     fn blend(self, other: Self, mask: Self) -> Self;
     fn cmp_gt(self, other: Self) -> Self;
-    fn to_int_trunc() -> ???  // via companion SimdInt trait
 }
 pub trait SimdInt: Copy {
     const VECTOR_SIZE: usize;
@@ -151,7 +156,7 @@ pub trait SimdInt: Copy {
 
 ### Backend-Auswahl (build.rs)
 
-`build.rs` mappt Cargo Features (`sse2`, `sse41`, `avx2`, `avx512`, `neon`) auf
+`build.rs` mapped Cargo Features (`sse2`, `sse41`, `avx2`, `avx512`, `neon`) auf
 `has_*` cfg-Flags. Zusätzlich automatische Erkennung via `target_feature` vom Compiler.
 `rustc-check-cfg` unterdrückt Warnings für die custom cfgs.
 
@@ -184,18 +189,6 @@ grad_coord_3d(seed, x, y, z, xi, yi, zi) = dito für 3D
 
 Gradienten-Tabelle: 24 3D-Einheitsvektoren (gleiche wie in FastNoiseSIMD, ohne eine Ecke vom Würfel),
 als `[f32; 72]` Array (24 Vektoren × 3 Komponenten).
-
----
-
-## Warum nur scalar-Benchmarks aktuell?
-
-Die Noise-Kernel sind auf generische `F: SimdFloat + I: SimdInt` ausgelegt,
-aber das SIMD-Dispatching in `lib.rs` passiert über eine statische Dispatch-Tabelle
-die noch nicht auf die batched-Funktionen umgestellt ist.
-Aktuell läuft alles durch `noise.rs` generics, und der Compiler monomorphisiert
-automatisch auf das zur Laufzeit erkannte SIMD-Backend (theoretisch).
-Praktisch wurde das noch nicht verifiziert weil die `kernel.rs` Integration nicht
-abgeschlossen ist. Daher benchen wir gegen scalar-backend als Baseline.
 
 ---
 
