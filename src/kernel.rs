@@ -56,12 +56,7 @@ fn lerp_simd<F: SimdFloat>(a: F, b: F, t: F) -> F {
 /// Each lane has its own (x, y, z) which may vary independently
 /// (e.g. after perturbation). Interpolation is fully SIMD.
 #[inline]
-fn value_noise_3d_batch<F: SimdFloat, I: SimdInt>(
-    seed: i32,
-    x: F,
-    y: F,
-    z: F,
-) -> F {
+fn value_noise_3d_batch<F: SimdFloat, I: SimdInt>(seed: i32, x: F, y: F, z: F) -> F {
     unsafe {
         let mut x_scalars = [0.0_f32; 16];
         let mut y_scalars = [0.0_f32; 16];
@@ -338,8 +333,7 @@ fn perturb_then_batch<F: SimdFloat, I: SimdInt>(
             let sx = (base_x + stride * i as f32) * freq_x;
             let sy = y * freq_y;
             let sz = z * freq_z;
-            let (nx, ny, nz) =
-                super::perturb::perturb_coords::<F, I>(settings, sx, sy, sz);
+            let (nx, ny, nz) = super::perturb::perturb_coords::<F, I>(settings, sx, sy, sz);
             px_arr[i] = nx;
             py_arr[i] = ny;
             pz_arr[i] = nz;
@@ -418,9 +412,7 @@ fn perlin_noise_3d_batch<F: SimdFloat, I: SimdInt>(seed: i32, x: F, y: F, z: F) 
             g001[i] = grad_coord_batch(seed, ix, iy, iz + 1, fx, fy, fz - 1.0);
             g101[i] = grad_coord_batch(seed, ix + 1, iy, iz + 1, fx - 1.0, fy, fz - 1.0);
             g011[i] = grad_coord_batch(seed, ix, iy + 1, iz + 1, fx, fy - 1.0, fz - 1.0);
-            g111[i] = grad_coord_batch(
-                seed, ix + 1, iy + 1, iz + 1, fx - 1.0, fy - 1.0, fz - 1.0,
-            );
+            g111[i] = grad_coord_batch(seed, ix + 1, iy + 1, iz + 1, fx - 1.0, fy - 1.0, fz - 1.0);
         }
 
         let g000_s = F::load(g000.as_ptr());
