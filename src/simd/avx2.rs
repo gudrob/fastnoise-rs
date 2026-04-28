@@ -179,10 +179,14 @@ impl SimdInt for Avx2Int {
 
     #[inline]
     fn shift_right(self, rhs: i32) -> Self {
-        // _mm256_srai_epi32 requires a compile-time constant in older Rust.
-        // Since this module only compiles with has_avx2 (target_feature enabled),
-        // the intrinsic is available. Use it via inline as workaround if needed.
-        unsafe { Self(_mm256_srai_epi32(self.0, rhs)) }
+        // _mm256_srai_epi32 requires a compile-time constant.
+        // Emulate via float: multiply by 2^{-rhs} and truncate.
+        unsafe {
+            let f = _mm256_cvtepi32_ps(self.0);
+            let factor = 2.0_f32.powi(-rhs);
+            let shifted = _mm256_mul_ps(f, _mm256_set1_ps(factor));
+            Self(_mm256_cvttps_epi32(shifted))
+        }
     }
 
     #[inline]

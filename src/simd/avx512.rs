@@ -130,8 +130,8 @@ impl SimdFloat for Avx512Float {
 
     #[inline]
     fn floor(self) -> Self {
-        // AVX-512F has native floor via _mm512_floor_ps
-        unsafe { Self(_mm512_floor_ps(self.0)) }
+        // _mm512_floor_ps was removed from stdarch; use roundscale toward -inf.
+        unsafe { Self(_mm512_roundscale_ps::<0>(self.0, _MM_FROUND_TO_NEG_INF)) }
     }
 }
 
@@ -182,9 +182,14 @@ impl SimdInt for Avx512Int {
 
     #[inline]
     fn shift_right(self, rhs: i32) -> Self {
-        // _mm512_srai_epi32 requires compile-time constant shift in some Rust versions.
-        // For AVX-512F with target_feature enabled this should work.
-        unsafe { Self(_mm512_srai_epi32(self.0, rhs)) }
+        // _mm512_srai_epi32 requires compile-time constant shift.
+        // Emulate via float: multiply by 2^{-rhs} and truncate.
+        unsafe {
+            let f = _mm512_cvtepi32_ps(self.0);
+            let factor = 2.0_f32.powi(-rhs);
+            let shifted = _mm512_mul_ps(f, _mm512_set1_ps(factor));
+            Self(_mm512_cvttps_epi32(shifted))
+        }
     }
 
     #[inline]

@@ -80,16 +80,12 @@ FastNoise::generate_grid(start_x, start_y, start_z, w, h, d)
 - [ ] **Test gegen C-Referenzwerte (golden file):**
       FastNoiseSIMD mit seed 1337, bekannte Koordinaten, Werte in Datei speichern,
       gegen Rust-Output diffen. Ohne das keine Garantie auf Bit-Identität.
-- [ ] **Benchmarks mit SIMD-Backends laufen lassen** (nicht nur scalar).
-      Aktuell benchen alle benches im Scalar-Modus. Benchmarks müssen für alle
-      Backends echte SIMD-Pfade durchlaufen.
 - [ ] **Perturb in kernel.rs integrieren:**
       Perturb fällt in `kernel::noise_batch_3d` noch auf per-lane-Fallback zurück.
       Eine echte SIMD-Batch-Implementierung fehlt.
 - [ ] **Frequenz-Skalierung prüfen:**
       Aktuelle freq-Skalierung matcht nicht exakt FastNoiseSIMD (dort: `x * m_frequency`).
       Code verwendet `x * x_scale * frequency`, was eine zusätzliche Multiplikation ist.
-- [ ] **Error-Handling:** Settings-Validierung (Frequenz > 0, Octaves > 0, etc.)
 
 ### Optional / Nice-to-have
 
@@ -115,6 +111,16 @@ FastNoise::generate_grid(start_x, start_y, start_z, w, h, d)
 - [x] `build.rs` / Feature-Gates geprüft: Cargo Features (`sse2`, `sse41`, `avx2`, `avx512`, `neon`)
       via `build.rs` korrekt auf `has_*` cfg-Flags gemappt. Automatische Erkennung via
       `target_feature` als Fallback. `rustc-check-cfg` unterdrückt Warnings.
+- [x] **Error-Handling:** `settings::validate()` als `pub fn` in `FastNoise` exposed.
+      Alle `get_noise_*`/`generate_grid*`-Methoden checken per `debug_assert!`.
+      `with_simd_level()` erlaubt SIMD-Level für Benchmarks zu erzwingen.
+- [x] **SIMD-Benchmarks:** `benches/noise_benchmarks.rs` bencht jetzt alle verfügbaren
+      SIMD-Backends (scalar, SSE4.1, AVX2, AVX-512F) für Value, Perlin, Simplex,
+      Cellular, Cubic, Grid-Generation und Perturb. `cargo bench --features <backend>`
+      aktiviert das jeweilige Backend.
+- [x] CI/CD-Fixes: SSE4.1/AVX2/AVX-512F Intrinsics-Fehler behoben
+      (`_mm_srai_epi32` const-Invoke, `_mm256_srai_epi32` const-Problem,
+      `_mm512_floor_ps` via `_mm512_roundscale_ps` ersetzt).
 
 ---
 

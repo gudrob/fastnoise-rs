@@ -5,7 +5,6 @@
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use super::sse2::{Sse2Float, Sse2Int};
 use super::{SimdFloat, SimdInt};
 
 /// SSE4.1 float vector (4 lanes, __m128) – reuses SSE2 with blendv/floor improvements.
@@ -170,7 +169,14 @@ impl SimdInt for Sse41Int {
 
     #[inline]
     fn shift_right(self, rhs: i32) -> Self {
-        unsafe { Self(_mm_srai_epi32(self.0, rhs)) }
+        // _mm_srai_epi32 requires a compile-time constant.
+        // Workaround: convert to f32, shift via multiplication by 2^{-rhs}, convert back.
+        unsafe {
+            let f = _mm_cvtepi32_ps(self.0);
+            let factor = 2.0_f32.powi(-rhs);
+            let shifted = _mm_mul_ps(f, _mm_set1_ps(factor));
+            Self(_mm_cvttps_epi32(shifted))
+        }
     }
 
     #[inline]
