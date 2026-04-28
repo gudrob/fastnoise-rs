@@ -19,8 +19,8 @@ use crate::simd::{SimdFloat, SimdInt};
 fn coord_x<F: SimdFloat>(base_x: f32, stride: f32) -> F {
     unsafe {
         let mut arr = [0.0_f32; 16];
-        for i in 0..F::VECTOR_SIZE {
-            arr[i] = base_x + stride * i as f32;
+        for (i, elem) in arr.iter_mut().enumerate().take(F::VECTOR_SIZE) {
+            *elem = base_x + stride * i as f32;
         }
         F::load(arr.as_ptr())
     }
@@ -132,6 +132,7 @@ fn value_noise_3d_batch<F: SimdFloat, I: SimdInt>(
 ///
 /// Processes `VECTOR_SIZE` consecutive x values at once per y,z iteration.
 /// Then falls back to scalar for any remainder.
+#[allow(clippy::too_many_arguments)]
 pub fn fill_noise_set_3d<F: SimdFloat, I: SimdInt>(
     settings: &Settings,
     start_x: i32,
@@ -159,8 +160,8 @@ pub fn fill_noise_set_3d<F: SimdFloat, I: SimdInt>(
                     // Store results
                     let mut out_slice = [0.0_f32; 16];
                     F::store(out_slice.as_mut_ptr(), batch);
-                    for i in 0..F::VECTOR_SIZE {
-                        noise_set_out[idx] = out_slice[i];
+                    for &val in out_slice.iter().take(F::VECTOR_SIZE) {
+                        noise_set_out[idx] = val;
                         idx += 1;
                     }
                 }
@@ -220,8 +221,8 @@ pub fn fill_noise_set_2d<F: SimdFloat, I: SimdInt>(
             unsafe {
                 let mut out_slice = [0.0_f32; 16];
                 F::store(out_slice.as_mut_ptr(), batch);
-                for i in 0..F::VECTOR_SIZE {
-                    noise_set_out[idx] = out_slice[i];
+                for &val in out_slice.iter().take(F::VECTOR_SIZE) {
+                    noise_set_out[idx] = val;
                     idx += 1;
                 }
             }
@@ -247,9 +248,9 @@ fn noise_batch_2d<F: SimdFloat, I: SimdInt>(
 ) -> F {
     unsafe {
         let mut values = [0.0_f32; 16];
-        for i in 0..F::VECTOR_SIZE {
+        for (i, elem) in values.iter_mut().enumerate().take(F::VECTOR_SIZE) {
             let x = base_x + stride * i as f32;
-            values[i] = noise_generate_sample_2d::<F, I>(settings, x, y);
+            *elem = noise_generate_sample_2d::<F, I>(settings, x, y);
         }
         F::load(values.as_ptr())
     }
@@ -304,9 +305,9 @@ fn build_batch_scalar<F: SimdFloat, I: SimdInt>(
 ) -> F {
     unsafe {
         let mut values = [0.0_f32; 16];
-        for i in 0..F::VECTOR_SIZE {
+        for (i, elem) in values.iter_mut().enumerate().take(F::VECTOR_SIZE) {
             let x = base_x + stride * i as f32;
-            values[i] = noise_generate_sample_3d::<F, I>(settings, x, y, z);
+            *elem = noise_generate_sample_3d::<F, I>(settings, x, y, z);
         }
         F::load(values.as_ptr())
     }
@@ -326,11 +327,11 @@ fn build_batch_perturbed<F: SimdFloat, I: SimdInt>(
 ) -> F {
     unsafe {
         let mut values = [0.0_f32; 16];
-        for i in 0..F::VECTOR_SIZE {
+        for (i, elem) in values.iter_mut().enumerate().take(F::VECTOR_SIZE) {
             let sx = (base_x + stride * i as f32) * settings.x_scale * settings.frequency;
             let sy = y * settings.y_scale * settings.frequency;
             let sz = z * settings.z_scale * settings.frequency;
-            values[i] = super::perturb::perturb_3d::<F, I>(settings, sx, sy, sz);
+            *elem = super::perturb::perturb_3d::<F, I>(settings, sx, sy, sz);
         }
         F::load(values.as_ptr())
     }
@@ -358,8 +359,8 @@ fn perlin_noise_3d_batch<F: SimdFloat, I: SimdInt>(seed: i32, x: F, y: f32, z: f
             let xi = x_scalars[i];
             let ix = xi.floor() as i32;
             let fx = xi - ix as f32;
-            let fy = y - y.floor() as f32;
-            let fz = z - z.floor() as f32;
+            let fy = y - y.floor();
+            let fz = z - z.floor();
             let iy = y.floor() as i32;
             let iz = z.floor() as i32;
 

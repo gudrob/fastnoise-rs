@@ -168,7 +168,6 @@ impl Settings {
     /// Validate settings and return an error message if something is wrong.
     ///
     /// Returns `Ok(())` if all settings are valid.
-    #[must_use]
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.frequency <= 0.0 {
             return Err("frequency must be > 0");

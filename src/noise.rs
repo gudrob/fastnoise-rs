@@ -70,7 +70,7 @@ pub fn generate_2d<F: SimdFloat, I: SimdInt>(settings: &Settings, x: f32, y: f32
     let x = x * settings.x_scale * settings.frequency;
     let y = y * settings.y_scale * settings.frequency;
 
-    let value = match settings.noise_type {
+    match settings.noise_type {
         NoiseType::Value => single_value_2d::<F, I>(settings.seed, x, y),
         NoiseType::ValueFractal => crate::fractal::fractal_2d::<F, I>(
             settings,
@@ -101,9 +101,7 @@ pub fn generate_2d<F: SimdFloat, I: SimdInt>(settings: &Settings, x: f32, y: f32
             x,
             y,
         ),
-    };
-
-    value
+    }
 }
 
 // ============================================================================
@@ -279,10 +277,6 @@ pub(crate) fn single_simplex_3d<F: SimdFloat, I: SimdInt>(
     let x3 = x0 - 1.0 + 3.0 * UNSKEW_3D;
     let y3 = y0 - 1.0 + 3.0 * UNSKEW_3D;
     let z3 = z0 - 1.0 + 3.0 * UNSKEW_3D;
-
-    let ix = ix;
-    let iy = iy;
-    let iz = iz;
 
     let mut n = 0.0_f32;
 
@@ -546,10 +540,10 @@ pub(crate) fn single_cubic_3d<F: SimdFloat, I: SimdInt>(seed: i32, x: f32, y: f3
     let fz = z - iz as f32;
 
     let mut vals = [[[0.0_f32; 4]; 4]; 4];
-    for dx in 0..4 {
-        for dy in 0..4 {
-            for dz in 0..4 {
-                vals[dx][dy][dz] = hash::val_coord_f32(
+    for (dx, plane) in vals.iter_mut().enumerate() {
+        for (dy, row) in plane.iter_mut().enumerate() {
+            for (dz, v) in row.iter_mut().enumerate() {
+                *v = hash::val_coord_f32(
                     seed,
                     ix + dx as i32 - 1,
                     iy + dy as i32 - 1,
@@ -570,9 +564,9 @@ fn single_cubic_2d<F: SimdFloat, I: SimdInt>(seed: i32, x: f32, y: f32) -> f32 {
     let fy = y - iy as f32;
 
     let mut vals = [[0.0_f32; 4]; 4];
-    for dx in 0..4 {
-        for dy in 0..4 {
-            vals[dx][dy] = hash::val_coord_2d_f32(seed, ix + dx as i32 - 1, iy + dy as i32 - 1);
+    for (dx, row) in vals.iter_mut().enumerate() {
+        for (dy, v) in row.iter_mut().enumerate() {
+            *v = hash::val_coord_2d_f32(seed, ix + dx as i32 - 1, iy + dy as i32 - 1);
         }
     }
 
@@ -608,17 +602,17 @@ fn cubic_hermite(a: f32, b: f32, c: f32, d: f32, t: f32) -> f32 {
 
 fn cubic_interp_2d(vals: &[[f32; 4]; 4], fx: f32, fy: f32) -> f32 {
     let mut row = [0.0_f32; 4];
-    for y in 0..4 {
-        row[y] = cubic_hermite(vals[0][y], vals[1][y], vals[2][y], vals[3][y], fx);
+    for (y, r) in row.iter_mut().enumerate() {
+        *r = cubic_hermite(vals[0][y], vals[1][y], vals[2][y], vals[3][y], fx);
     }
     cubic_hermite(row[0], row[1], row[2], row[3], fy)
 }
 
 fn cubic_interp_3d(vals: &[[[f32; 4]; 4]; 4], fx: f32, fy: f32, fz: f32) -> f32 {
     let mut plane = [[0.0_f32; 4]; 4];
-    for y in 0..4 {
-        for z in 0..4 {
-            plane[y][z] = cubic_hermite(
+    for (y, plane_row) in plane.iter_mut().enumerate() {
+        for (z, p) in plane_row.iter_mut().enumerate() {
+            *p = cubic_hermite(
                 vals[0][y][z],
                 vals[1][y][z],
                 vals[2][y][z],
@@ -628,8 +622,8 @@ fn cubic_interp_3d(vals: &[[[f32; 4]; 4]; 4], fx: f32, fy: f32, fz: f32) -> f32 
         }
     }
     let mut row = [0.0_f32; 4];
-    for z in 0..4 {
-        row[z] = cubic_hermite(plane[0][z], plane[1][z], plane[2][z], plane[3][z], fy);
+    for (z, r) in row.iter_mut().enumerate() {
+        *r = cubic_hermite(plane[0][z], plane[1][z], plane[2][z], plane[3][z], fy);
     }
     cubic_hermite(row[0], row[1], row[2], row[3], fz)
 }

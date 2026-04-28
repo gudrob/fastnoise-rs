@@ -235,7 +235,7 @@ mod tests {
         let v = rigid_multi_3d::<ScalarFloat, ScalarInt>(&settings, test_noise_3d, 0.5, 0.5, 0.5);
         assert!(v.is_finite(), "rigid multi value should be finite: {v}");
         assert!(
-            v >= -1.0 && v <= 1.0,
+            (-1.0..=1.0).contains(&v),
             "rigid multi should be in [-1,1]: {v}"
         );
     }
